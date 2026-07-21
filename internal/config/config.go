@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -14,6 +16,9 @@ type Config struct {
 }
 
 func Load() Config {
+	// Real environment wins over .env; missing .env is fine (docker
+	// compose passes everything via environment).
+	_ = godotenv.Load()
 	return Config{
 		HTTPAddr:        getenv("HTTP_ADDR", ":8080"),
 		DatabaseURL:     getenv("DATABASE_URL", "postgres://pricetags:pricetags@localhost:5433/pricetags?sslmode=disable"),

@@ -2,15 +2,15 @@ services:
   postgres:
     image: postgres:16.6-alpine
     environment:
-      POSTGRES_DB: pricetags
-      POSTGRES_USER: pricetags
-      POSTGRES_PASSWORD: pricetags
+      POSTGRES_DB: ${POSTGRES_DB:-pricetags}
+      POSTGRES_USER: ${POSTGRES_USER:-pricetags}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pricetags}
     ports:
-      - "5433:5432"
+      - "${POSTGRES_PORT:-5433}:5432"
     volumes:
       - pricetags_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pricetags -d pricetags"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -20,9 +20,9 @@ services:
     environment:
       discovery.type: single-node
       xpack.security.enabled: "false"
-      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+      ES_JAVA_OPTS: ${ES_JAVA_OPTS:--Xms512m -Xmx512m}
     ports:
-      - "9200:9200"
+      - "${ES_PORT:-9200}:9200"
     volumes:
       - pricetags_esdata:/usr/share/elasticsearch/data
     healthcheck:
@@ -35,10 +35,11 @@ services:
   app:
     build: .
     ports:
-      - "8080:8080"
+      - "${APP_PORT:-8080}:8080"
     environment:
-      DATABASE_URL: postgres://pricetags:pricetags@postgres:5432/pricetags?sslmode=disable
+      DATABASE_URL: postgres://${POSTGRES_USER:-pricetags}:${POSTGRES_PASSWORD:-pricetags}@postgres:5432/${POSTGRES_DB:-pricetags}?sslmode=disable
       ELASTICSEARCH_URL: http://elasticsearch:9200
+      MIGRATE_ON_START: ${MIGRATE_ON_START:-true}
     depends_on:
       postgres:
         condition: service_healthy
