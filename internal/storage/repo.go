@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jmoiron/sqlx"
@@ -180,33 +182,78 @@ type slotRow struct {
 	RetailPrice *decimal.Decimal `db:"retail_price"`
 }
 
+// searchUnionQ joins products found via trigram indexes back to slots and
+// unions the slot-number branch separately: a single OR across both tables
+// forces a full walk of the company board (see EXPLAIN in README), while
+// the UNION lets each branch use its own index.
+const searchUnionQ = `
+	SELECT s.slot_number, s.product_id, p.name, p.sku, p.retail_price
+	FROM shelf_slot s
+	JOIN product p ON p.id = s.product_id AND p.deleted_at IS NULL
+	WHERE s.company_id = $1 AND (p.name ILIKE $2 OR p.sku ILIKE $2)
+	UNION
+	SELECT s.slot_number, s.product_id, p.name, p.sku, p.retail_price
+	FROM shelf_slot s
+	LEFT JOIN product p ON p.id = s.product_id AND p.deleted_at IS NULL
+	WHERE s.company_id = $1 AND s.slot_number = $3`
+
 // ListSlots returns one page of the company board (empty slots included)
 // plus the total count for the same filter.
 func (r *Repo) ListSlots(ctx context.Context, companyID uuid.UUID, search string, limit, offset int) ([]domain.SlotView, int, error) {
+	if search == "" {
+		return r.listAllSlots(ctx, companyID, limit, offset)
+	}
+
+	pattern := "%" + escapeLike(search) + "%"
+	// Slot numbers start at 1, so 0 means "no slot-number match".
+	slotNum := 0
+	if n, err := strconv.Atoi(search); err == nil {
+		slotNum = n
+	}
+
+	var rows []slotRow
+	listQ := `SELECT * FROM (` + searchUnionQ + `) t ORDER BY slot_number LIMIT $4 OFFSET $5`
+	if err := sqlx.SelectContext(ctx, r.db, &rows, listQ, companyID, pattern, slotNum, limit, offset); err != nil {
+		return nil, 0, fmt.Errorf("search slots: %w", err)
+	}
+
+	var total int
+	countQ := `SELECT count(*) FROM (` + searchUnionQ + `) t`
+	if err := sqlx.GetContext(ctx, r.db, &total, countQ, companyID, pattern, slotNum); err != nil {
+		return nil, 0, fmt.Errorf("count searched slots: %w", err)
+	}
+
+	return slotViews(rows), total, nil
+}
+
+func (r *Repo) listAllSlots(ctx context.Context, companyID uuid.UUID, limit, offset int) ([]domain.SlotView, int, error) {
 	const listQ = `
 		SELECT s.slot_number, s.product_id, p.name, p.sku, p.retail_price
 		FROM shelf_slot s
 		LEFT JOIN product p ON p.id = s.product_id AND p.deleted_at IS NULL
 		WHERE s.company_id = $1
-		  AND ($2 = '' OR p.name ILIKE '%' || $2 || '%' OR p.sku ILIKE '%' || $2 || '%' OR s.slot_number::text = $2)
 		ORDER BY s.slot_number
-		LIMIT $3 OFFSET $4`
+		LIMIT $2 OFFSET $3`
 	var rows []slotRow
-	if err := sqlx.SelectContext(ctx, r.db, &rows, listQ, companyID, search, limit, offset); err != nil {
+	if err := sqlx.SelectContext(ctx, r.db, &rows, listQ, companyID, limit, offset); err != nil {
 		return nil, 0, fmt.Errorf("list slots: %w", err)
 	}
 
-	const countQ = `
-		SELECT count(*)
-		FROM shelf_slot s
-		LEFT JOIN product p ON p.id = s.product_id AND p.deleted_at IS NULL
-		WHERE s.company_id = $1
-		  AND ($2 = '' OR p.name ILIKE '%' || $2 || '%' OR p.sku ILIKE '%' || $2 || '%' OR s.slot_number::text = $2)`
 	var total int
-	if err := sqlx.GetContext(ctx, r.db, &total, countQ, companyID, search); err != nil {
+	const countQ = `SELECT count(*) FROM shelf_slot WHERE company_id = $1`
+	if err := sqlx.GetContext(ctx, r.db, &total, countQ, companyID); err != nil {
 		return nil, 0, fmt.Errorf("count slots: %w", err)
 	}
 
+	return slotViews(rows), total, nil
+}
+
+// escapeLike neutralizes user-supplied LIKE wildcards.
+func escapeLike(s string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
+}
+
+func slotViews(rows []slotRow) []domain.SlotView {
 	out := make([]domain.SlotView, 0, len(rows))
 	for _, row := range rows {
 		view := domain.SlotView{Slot: row.SlotNumber}
@@ -220,7 +267,7 @@ func (r *Repo) ListSlots(ctx context.Context, companyID uuid.UUID, search string
 		}
 		out = append(out, view)
 	}
-	return out, total, nil
+	return out
 }
 
 // SoftDeleteProducts marks products deleted and frees their slots.

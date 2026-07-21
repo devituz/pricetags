@@ -16,7 +16,7 @@ type Config struct {
 func Load() Config {
 	return Config{
 		HTTPAddr:        getenv("HTTP_ADDR", ":8080"),
-		DatabaseURL:     getenv("DATABASE_URL", "postgres://pricetags:pricetags@localhost:5432/pricetags?sslmode=disable"),
+		DatabaseURL:     getenv("DATABASE_URL", "postgres://pricetags:pricetags@localhost:5433/pricetags?sslmode=disable"),
 		ElasticURL:      getenv("ELASTICSEARCH_URL", "http://localhost:9200"),
 		MigrateOnStart:  getenv("MIGRATE_ON_START", "true") == "true",
 		ShutdownTimeout: 10 * time.Second,

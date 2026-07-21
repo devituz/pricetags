@@ -1,4 +1,4 @@
-DATABASE_URL ?= postgres://pricetags:pricetags@localhost:5432/pricetags?sslmode=disable
+DATABASE_URL ?= postgres://pricetags:pricetags@localhost:5433/pricetags?sslmode=disable
 
 .PHONY: up down logs build run test lint migrate-up migrate-down
 
