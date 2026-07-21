@@ -25,6 +25,7 @@ func New(svc *service.Service, log *slog.Logger) *fiber.App {
 	app.Get("/healthz", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{"status": "ok"})
 	})
+	registerDocs(app)
 
 	h := &handler{svc: svc}
 	api := app.Group("", requireCompany)

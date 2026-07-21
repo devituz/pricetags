@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"strings"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 
@@ -10,6 +12,9 @@ import (
 
 const (
 	maxBulkProducts = 1000
+	maxBulkSlots    = 1000
+	maxBulkDeletes  = 1000
+	maxSlotNumber   = 1_000_000_000 // fits int4, sane board size cap
 	defaultLimit    = 20
 	maxLimit        = 100
 )
@@ -33,7 +38,10 @@ func (h *handler) bulkUpsertProducts(c *fiber.Ctx) error {
 	if len(req.Products) > maxBulkProducts {
 		return domain.Validationf("products list exceeds %d items", maxBulkProducts)
 	}
-	for i, p := range req.Products {
+	for i := range req.Products {
+		p := &req.Products[i]
+		p.Name = strings.TrimSpace(p.Name)
+		p.SKU = strings.TrimSpace(p.SKU)
 		switch {
 		case p.Name == "":
 			return domain.Validationf("products[%d]: name is required", i)
@@ -59,9 +67,12 @@ func (h *handler) assignSlots(c *fiber.Ctx) error {
 	if len(items) == 0 {
 		return domain.Validationf("slots list is empty")
 	}
+	if len(items) > maxBulkSlots {
+		return domain.Validationf("slots list exceeds %d items", maxBulkSlots)
+	}
 	for i, s := range items {
-		if s.Slot < 1 {
-			return domain.Validationf("slots[%d]: slot must be >= 1", i)
+		if s.Slot < 1 || s.Slot > maxSlotNumber {
+			return domain.Validationf("slots[%d]: slot must be between 1 and %d", i, maxSlotNumber)
 		}
 	}
 
@@ -73,10 +84,7 @@ func (h *handler) assignSlots(c *fiber.Ctx) error {
 }
 
 func (h *handler) listSlots(c *fiber.Ctx) error {
-	page := c.QueryInt("page", 1)
-	if page < 1 {
-		page = 1
-	}
+	page := max(c.QueryInt("page", 1), 1)
 	limit := c.QueryInt("limit", defaultLimit)
 	if limit < 1 || limit > maxLimit {
 		limit = defaultLimit
@@ -106,6 +114,9 @@ func (h *handler) deleteProducts(c *fiber.Ctx) error {
 	}
 	if len(req.IDs) == 0 {
 		return domain.Validationf("ids list is empty")
+	}
+	if len(req.IDs) > maxBulkDeletes {
+		return domain.Validationf("ids list exceeds %d items", maxBulkDeletes)
 	}
 
 	deleted, err := h.svc.DeleteProducts(c.UserContext(), companyID(c), req.IDs)

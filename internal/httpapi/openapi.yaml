@@ -1,0 +1,324 @@
+openapi: 3.0.3
+info:
+  title: Pricetags API
+  description: |
+    Do'kondagi elektron narx ko'rsatkichlari servisi.
+
+    Har bir so'rovda `X-Company-Id` header (uuid) majburiy — **Authorize** tugmasi
+    orqali bir marta kiriting, masalan: `11111111-1111-1111-1111-111111111111`.
+  version: 1.0.0
+servers:
+  - url: /
+security:
+  - CompanyId: []
+paths:
+  /products/bulk:
+    post:
+      summary: Bulk upsert products
+      description: >
+        1000 tagacha mahsulot, (company_id, sku) bo'yicha upsert. Bitta requestda
+        bitta sku ikki marta kelsa — oxirgisi olinadi, xato bermaydi.
+      tags: [products]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [products]
+              properties:
+                products:
+                  type: array
+                  maxItems: 1000
+                  items:
+                    $ref: '#/components/schemas/BulkProductInput'
+            example:
+              products:
+                - name: Coca-Cola 1L
+                  sku: COLA-1
+                  barcode: ["478001", "478002"]
+                  supply_price: 8000
+                  retail_price: 11000
+                - name: Pepsi 1L
+                  sku: PEPSI-1
+                  barcode: ["478003"]
+                  supply_price: 7500
+                  retail_price: 10500
+      responses:
+        '200':
+          description: Upsert natijasi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkUpsertResult'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /products:
+    delete:
+      summary: Soft delete products
+      description: Mahsulotlar soft delete bo'ladi va ularning slotlari bo'shaydi.
+      tags: [products]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '200':
+          description: O'chirilganlar soni
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /products/search:
+    get:
+      summary: Search products (Elasticsearch)
+      description: >
+        Nom bo'yicha fuzzy (biroz xato yozilsa ham topadi), sku, barcode va slot
+        raqami bo'yicha exact. Faqat o'z kompaniyasi ichida.
+      tags: [products]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+          example: cofa
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        '200':
+          description: Qidiruv natijasi
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SearchHit'
+                  total:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /slots:
+    put:
+      summary: Assign products to slots
+      description: >
+        Slot band bo'lsa, eskisi olib tashlanib yangisi biriktiriladi.
+        `product_id: null` — slotni bo'shatish yoki bo'sh slotni oldindan yaratish.
+      tags: [slots]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/SlotAssignment'
+            example:
+              - slot: 1
+                product_id: 00000000-0000-0000-0000-000000000000
+              - slot: 2
+                product_id: null
+      responses:
+        '200':
+          description: Qo'llangan slotlar soni
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updated:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    get:
+      summary: List company slot board
+      description: >
+        Bo'sh slotlar ham chiqadi. search — nom, sku yoki slot raqami bo'yicha.
+      tags: [slots]
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Doska sahifasi
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SlotView'
+                  total:
+                    type: integer
+                  page:
+                    type: integer
+                  limit:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /reports/stock-value:
+    get:
+      summary: Stock value report
+      description: Biriktirilgan mahsulotlar supply_price yig'indisi, band/bo'sh slotlar soni.
+      tags: [reports]
+      responses:
+        '200':
+          description: Hisobot
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_supply_value:
+                    type: number
+                  occupied_slots:
+                    type: integer
+                  empty_slots:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /healthz:
+    get:
+      summary: Health check
+      tags: [system]
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+components:
+  securitySchemes:
+    CompanyId:
+      type: apiKey
+      in: header
+      name: X-Company-Id
+      description: Kompaniya UUID
+  responses:
+    BadRequest:
+      description: Validatsiya xatosi
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+    BulkProductInput:
+      type: object
+      required: [name, sku]
+      properties:
+        name:
+          type: string
+        sku:
+          type: string
+        barcode:
+          type: array
+          items:
+            type: string
+        supply_price:
+          type: number
+        retail_price:
+          type: number
+    BulkUpsertResult:
+      type: object
+      properties:
+        created:
+          type: integer
+        updated:
+          type: integer
+        total:
+          type: integer
+    SlotAssignment:
+      type: object
+      required: [slot]
+      properties:
+        slot:
+          type: integer
+          minimum: 1
+        product_id:
+          type: string
+          format: uuid
+          nullable: true
+    SlotView:
+      type: object
+      properties:
+        slot:
+          type: integer
+        product:
+          type: object
+          nullable: true
+          properties:
+            id:
+              type: string
+              format: uuid
+            name:
+              type: string
+            sku:
+              type: string
+            retail_price:
+              type: number
+    SearchHit:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        sku:
+          type: string
+        barcode:
+          type: array
+          items:
+            type: string
+        retail_price:
+          type: number
+        slot:
+          type: array
+          items:
+            type: string
