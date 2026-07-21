@@ -1,0 +1,11 @@
+.idea/
+.vscode/
+bin/
+*.env
+.env*
+!.env.example
+*.pem
+id_rsa*
+*.dump
+*.sql.gz
+coverage.out
