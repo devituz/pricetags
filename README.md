@@ -5,10 +5,15 @@ Go 1.21+ (sqlx, Fiber), PostgreSQL 16, Elasticsearch 8, golang-migrate.
 ## Ishga tushirish
 
 ```bash
+cp .env.example .env   # ixtiyoriy — defaultlar bilan ham ishlayveradi
 docker compose up -d --build
 ```
 
 Shu bilan hammasi tayyor: Postgres (host: `5433`), Elasticsearch (`9200`) va servis (`8080`) ko'tariladi.
+Portlar va parollar `.env` orqali o'zgartiriladi (`.env.example` ga qarang); `.env` git'ga kirmaydi.
+
+**Swagger UI: [http://localhost:8080/docs](http://localhost:8080/docs)** — barcha endpointlarni brauzerdan tekshirish mumkin.
+*Authorize* tugmasi orqali `X-Company-Id` kiritiladi (masalan `11111111-1111-1111-1111-111111111111`), spec: `/openapi.yaml`.
 Migratsiyalar binary ichiga embed qilingan va start paytida avtomatik qo'llanadi (`MIGRATE_ON_START=true`).
 CLI orqali ham mumkin:
 
