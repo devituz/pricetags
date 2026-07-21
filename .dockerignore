@@ -1,0 +1,9 @@
+.git
+.idea
+.vscode
+bin
+*.md
+.env*
+docker-compose.yml
+Makefile
+coverage.out
