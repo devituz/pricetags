@@ -86,7 +86,9 @@ Xatolar: `400` — validatsiya (`{"error":"products[3]: sku is required"}`), `50
 - slot o'zgarishi → `_bulk` `update` faqat `{"doc":{"slot":[...]}}` — hujjat qayta yozilmaydi. Yangi egalar bilan birga **siqib chiqarilgan** mahsulotlarning ham slot maydoni yangilanadi;
 - soft delete → `_bulk` `delete`.
 
-ES yiqilsa yozuv 500 bermaydi: DB'da commit bo'lgan, xato log'ga tushadi. Production'da bu joyga outbox + retry qo'yilishi kerak — test topshiriq doirasida ongli soddalashtirish. `refresh=wait_for` demo qulayligi uchun yoqilgan (yozuvdan keyingi qidiruv darhol ko'radi), og'ir yozuv oqimida o'chiriladi.
+Sync **background goroutine'da** ishlaydi (`service.syncES`): client javobi ES'ni kutmaydi, DB commit — javob qaytdi. Har bir sync o'z timeout'li context'ini oladi (request context'iga bog'lanmaydi — javob yozilgach request context bekor bo'ladi, sync esa yashashi kerak), `sync.WaitGroup` bilan hisoblanadi va graceful shutdown'da drain qilinadi — SIGTERM'da birorta yangilanish yo'qolmaydi. ES yiqilsa yozuv 500 bermaydi: DB'da commit bo'lgan, xato log'ga tushadi. Production'da bu joyga outbox + retry qo'yilishi kerak — test topshiriq doirasida ongli soddalashtirish. `refresh=wait_for` demo qulayligi uchun yoqilgan (yozuvdan keyingi qidiruv darhol ko'radi), og'ir yozuv oqimida o'chiriladi.
+
+**Parallel so'rovlar.** `GET /slots` sahifa va umumiy count — ikkita mustaqil so'rov, `errgroup` bilan bir vaqtda pool'ga ketadi: latency ikkitaning yig'indisi emas, sekinrog'iniki bo'ladi; bittasi yiqilsa ikkinchisi context orqali bekor qilinadi.
 
 **ES'da `slot` — keyword massiv.** Bitta mahsulot bir nechta slotda turishi mumkin (ikkita javonda bitta tovar), shuning uchun hujjatda slot raqamlari string massiv bo'lib saqlanadi. Qidiruvda `term` to'g'ridan-to'g'ri ishlaydi.
 

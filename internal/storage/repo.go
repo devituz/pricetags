@@ -13,6 +13,7 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 	"github.com/shopspring/decimal"
+	"golang.org/x/sync/errgroup"
 
 	"pricetags/internal/domain"
 )
@@ -211,38 +212,62 @@ func (r *Repo) ListSlots(ctx context.Context, companyID uuid.UUID, search string
 		slotNum = n
 	}
 
-	var rows []slotRow
-	listQ := `SELECT * FROM (` + searchUnionQ + `) t ORDER BY slot_number LIMIT $4 OFFSET $5`
-	if err := sqlx.SelectContext(ctx, r.db, &rows, listQ, companyID, pattern, slotNum, limit, offset); err != nil {
-		return nil, 0, fmt.Errorf("search slots: %w", err)
-	}
-
-	var total int
-	countQ := `SELECT count(*) FROM (` + searchUnionQ + `) t`
-	if err := sqlx.GetContext(ctx, r.db, &total, countQ, companyID, pattern, slotNum); err != nil {
-		return nil, 0, fmt.Errorf("count searched slots: %w", err)
+	// Page and total are independent: run both queries concurrently on
+	// the pool, fail fast if either errors.
+	var (
+		rows  []slotRow
+		total int
+	)
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		listQ := `SELECT * FROM (` + searchUnionQ + `) t ORDER BY slot_number LIMIT $4 OFFSET $5`
+		if err := sqlx.SelectContext(gctx, r.db, &rows, listQ, companyID, pattern, slotNum, limit, offset); err != nil {
+			return fmt.Errorf("search slots: %w", err)
+		}
+		return nil
+	})
+	g.Go(func() error {
+		countQ := `SELECT count(*) FROM (` + searchUnionQ + `) t`
+		if err := sqlx.GetContext(gctx, r.db, &total, countQ, companyID, pattern, slotNum); err != nil {
+			return fmt.Errorf("count searched slots: %w", err)
+		}
+		return nil
+	})
+	if err := g.Wait(); err != nil {
+		return nil, 0, err
 	}
 
 	return slotViews(rows), total, nil
 }
 
 func (r *Repo) listAllSlots(ctx context.Context, companyID uuid.UUID, limit, offset int) ([]domain.SlotView, int, error) {
-	const listQ = `
-		SELECT s.slot_number, s.product_id, p.name, p.sku, p.retail_price
-		FROM shelf_slot s
-		LEFT JOIN product p ON p.id = s.product_id AND p.deleted_at IS NULL
-		WHERE s.company_id = $1
-		ORDER BY s.slot_number
-		LIMIT $2 OFFSET $3`
-	var rows []slotRow
-	if err := sqlx.SelectContext(ctx, r.db, &rows, listQ, companyID, limit, offset); err != nil {
-		return nil, 0, fmt.Errorf("list slots: %w", err)
-	}
-
-	var total int
-	const countQ = `SELECT count(*) FROM shelf_slot WHERE company_id = $1`
-	if err := sqlx.GetContext(ctx, r.db, &total, countQ, companyID); err != nil {
-		return nil, 0, fmt.Errorf("count slots: %w", err)
+	var (
+		rows  []slotRow
+		total int
+	)
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		const listQ = `
+			SELECT s.slot_number, s.product_id, p.name, p.sku, p.retail_price
+			FROM shelf_slot s
+			LEFT JOIN product p ON p.id = s.product_id AND p.deleted_at IS NULL
+			WHERE s.company_id = $1
+			ORDER BY s.slot_number
+			LIMIT $2 OFFSET $3`
+		if err := sqlx.SelectContext(gctx, r.db, &rows, listQ, companyID, limit, offset); err != nil {
+			return fmt.Errorf("list slots: %w", err)
+		}
+		return nil
+	})
+	g.Go(func() error {
+		const countQ = `SELECT count(*) FROM shelf_slot WHERE company_id = $1`
+		if err := sqlx.GetContext(gctx, r.db, &total, countQ, companyID); err != nil {
+			return fmt.Errorf("count slots: %w", err)
+		}
+		return nil
+	})
+	if err := g.Wait(); err != nil {
+		return nil, 0, err
 	}
 
 	return slotViews(rows), total, nil

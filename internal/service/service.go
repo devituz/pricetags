@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -12,18 +14,40 @@ import (
 	"pricetags/internal/storage"
 )
 
+const esSyncTimeout = 10 * time.Second
+
 // Service orchestrates Postgres (source of truth) and Elasticsearch
-// (search projection). ES sync runs after the DB commit: an ES failure
-// never rolls back committed data, it is logged and surfaced as an error
-// of the projection, not of the write.
+// (search projection). ES sync runs in a background goroutine after the
+// DB commit: the client response never waits for the projection and an
+// ES failure never rolls back committed data.
 type Service struct {
 	repo *storage.Repo
 	es   *search.ES
 	log  *slog.Logger
+	wg   sync.WaitGroup
 }
 
 func New(repo *storage.Repo, es *search.ES, log *slog.Logger) *Service {
 	return &Service{repo: repo, es: es, log: log}
+}
+
+// syncES runs an Elasticsearch projection update in the background.
+// A fresh context is used on purpose: the sync must survive the request
+// context being canceled once the response is written.
+func (s *Service) syncES(op string, fn func(ctx context.Context) error) {
+	s.wg.Go(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), esSyncTimeout)
+		defer cancel()
+		if err := fn(ctx); err != nil {
+			s.log.Error("es sync failed", "op", op, "err", err)
+		}
+	})
+}
+
+// Wait blocks until in-flight projection syncs finish; called on
+// graceful shutdown so no ES update is lost on SIGTERM.
+func (s *Service) Wait() {
+	s.wg.Wait()
 }
 
 // BulkUpsertProducts deduplicates the batch (last sku wins), upserts into
@@ -63,9 +87,9 @@ func (s *Service) BulkUpsertProducts(ctx context.Context, companyID uuid.UUID, i
 		}
 	}
 
-	if err := s.es.UpsertProducts(ctx, docs); err != nil {
-		s.log.Error("es sync failed after product upsert", "err", err)
-	}
+	s.syncES("product upsert", func(ctx context.Context) error {
+		return s.es.UpsertProducts(ctx, docs)
+	})
 	return res, nil
 }
 
@@ -80,17 +104,19 @@ func (s *Service) AssignSlots(ctx context.Context, companyID uuid.UUID, items []
 	}
 
 	if len(affected) > 0 {
-		current, err := s.repo.ProductSlots(ctx, companyID, affected)
-		if err != nil {
-			return 0, err
-		}
-		updates := make(map[uuid.UUID][]string, len(affected))
-		for _, id := range affected {
-			updates[id] = current[id] // nil => product left without slots
-		}
-		if err := s.es.UpdateSlots(ctx, updates); err != nil {
-			s.log.Error("es sync failed after slot assignment", "err", err)
-		}
+		s.syncES("slot update", func(ctx context.Context) error {
+			// Read the state after commit so concurrent assignments
+			// converge on the latest placement.
+			current, err := s.repo.ProductSlots(ctx, companyID, affected)
+			if err != nil {
+				return err
+			}
+			updates := make(map[uuid.UUID][]string, len(affected))
+			for _, id := range affected {
+				updates[id] = current[id] // nil => product left without slots
+			}
+			return s.es.UpdateSlots(ctx, updates)
+		})
 	}
 	return len(deduped), nil
 }
@@ -106,9 +132,9 @@ func (s *Service) DeleteProducts(ctx context.Context, companyID uuid.UUID, ids [
 	if err != nil {
 		return 0, err
 	}
-	if err := s.es.DeleteProducts(ctx, deleted); err != nil {
-		s.log.Error("es sync failed after product delete", "err", err)
-	}
+	s.syncES("product delete", func(ctx context.Context) error {
+		return s.es.DeleteProducts(ctx, deleted)
+	})
 	return len(deleted), nil
 }
 

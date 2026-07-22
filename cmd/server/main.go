@@ -67,6 +67,9 @@ func main() {
 			log.Error("graceful shutdown failed", "err", err)
 			os.Exit(1)
 		}
+		// Drain background ES projection syncs so no update is lost;
+		// each sync is bounded by its own timeout.
+		svc.Wait()
 		log.Info("server stopped")
 	case err := <-errCh:
 		log.Error("http server failed", "err", err)
