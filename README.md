@@ -135,9 +135,10 @@ Hisobot so'rovi 20k slotda 25ms (hash join + aggregate) — kompaniya kesimida b
 
 ## Testlar
 
-Eng xatarli ikki joy qoplangan (`make test`):
-- `internal/domain/product_test.go` — bulk dedupe: oxirgi sku g'olib, tartib saqlanadi; slot dedupe (shu jumladan `null` bilan bo'shatish);
-- `internal/search/es_test.go` — qidiruv so'rovida `company_id` doim qattiq `filter` ekani (tenant izolyatsiyasi), fuzzy va exact-term tuzilishi.
+Eng xatarli joylar qoplangan (`make test`):
+- `internal/domain/product_test.go` — bulk dedupe: oxirgi sku g'olib, tartib saqlanadi; slot dedupe (shu jumladan `null` bilan bo'shatish). Bu eng murakkab joy: dedupe'siz multi-row `ON CONFLICT` "cannot affect row a second time" bilan yiqiladi;
+- `internal/search/es_test.go` — qidiruv so'rovida `company_id` doim qattiq `filter` ekani (tenant izolyatsiyasi), fuzzy va exact-term tuzilishi;
+- `internal/httpapi/errors_test.go` — xato kontrakti: har qanday xato to'g'ri HTTP kod + `{"error":"..."}` JSON, tenant header biznes-logikadan oldin tekshiriladi, 500'da ichki detallar clientga chiqmaydi.
 
 ## Qilinmagan / keyingi qadamlar
 
