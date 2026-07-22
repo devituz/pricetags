@@ -45,6 +45,7 @@ func (e *ES) EnsureIndex(ctx context.Context) error {
 	const mapping = `{
 		"mappings": {
 			"properties": {
+				"id":           {"type": "keyword"},
 				"company_id":   {"type": "keyword"},
 				"name":         {"type": "text"},
 				"sku":          {"type": "keyword"},
@@ -72,6 +73,7 @@ func (e *ES) EnsureIndex(ctx context.Context) error {
 // The slot field is intentionally absent: it is owned by slot updates
 // and must survive product re-indexing (doc_as_upsert merge).
 type ProductDoc struct {
+	ID          string   `json:"id"`
 	CompanyID   string   `json:"company_id"`
 	Name        string   `json:"name"`
 	SKU         string   `json:"sku"`
@@ -163,12 +165,15 @@ func (e *ES) bulk(ctx context.Context, buf *bytes.Buffer) error {
 	if parsed.Errors {
 		for _, item := range parsed.Items {
 			for op, r := range item {
+				// Deleting a document that was never indexed is fine.
+				if op == "delete" && r.Status == 404 {
+					continue
+				}
 				if r.Status >= 300 {
 					return fmt.Errorf("bulk %s failed with status %d: %s", op, r.Status, r.Error)
 				}
 			}
 		}
-		return fmt.Errorf("bulk request reported item errors")
 	}
 	return nil
 }

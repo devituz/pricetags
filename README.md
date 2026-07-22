@@ -90,7 +90,7 @@ ES yiqilsa yozuv 500 bermaydi: DB'da commit bo'lgan, xato log'ga tushadi. Produc
 
 **ES'da `slot` — keyword massiv.** Bitta mahsulot bir nechta slotda turishi mumkin (ikkita javonda bitta tovar), shuning uchun hujjatda slot raqamlari string massiv bo'lib saqlanadi. Qidiruvda `term` to'g'ridan-to'g'ri ishlaydi.
 
-**Hisobot** — bitta SQL: `LEFT JOIN` + `COUNT(*) FILTER`, kodda hech qanday loop yo'q.
+**Hisobot** — bitta SQL: CTE + `COUNT(*) FILTER`, kodda hech qanday loop yo'q. Bitta mahsulot bir nechta slotda tursa, qiymat yig'indisida **bir marta** hisoblanadi ("biriktirilgan mahsulotlar yig'indisi"), slot hisoblagichlari esa slot kesimida qoladi.
 
 **Pul** — `numeric(14,2)` + Go'da `shopspring/decimal`, JSON'da raqam bo'lib chiqadi.
 

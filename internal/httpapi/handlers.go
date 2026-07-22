@@ -89,7 +89,7 @@ func (h *handler) listSlots(c *fiber.Ctx) error {
 	if limit < 1 || limit > maxLimit {
 		limit = defaultLimit
 	}
-	search := c.Query("search")
+	search := strings.TrimSpace(c.Query("search"))
 
 	items, total, err := h.svc.ListSlots(c.UserContext(), companyID(c), search, limit, (page-1)*limit)
 	if err != nil {
@@ -135,7 +135,7 @@ func (h *handler) stockValue(c *fiber.Ctx) error {
 }
 
 func (h *handler) searchProducts(c *fiber.Ctx) error {
-	q := c.Query("q")
+	q := strings.TrimSpace(c.Query("q"))
 	if q == "" {
 		return domain.Validationf("query parameter q is required")
 	}

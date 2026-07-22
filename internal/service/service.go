@@ -54,6 +54,7 @@ func (s *Service) BulkUpsertProducts(ctx context.Context, companyID uuid.UUID, i
 			barcode = []string{}
 		}
 		docs[row.ID] = search.ProductDoc{
+			ID:          row.ID.String(),
 			CompanyID:   companyID.String(),
 			Name:        it.Name,
 			SKU:         it.SKU,

@@ -320,14 +320,22 @@ func (r *Repo) StockValue(ctx context.Context, companyID uuid.UUID) (domain.Stoc
 		Occupied int             `db:"occupied_slots"`
 		Empty    int             `db:"empty_slots"`
 	}{}
+	// A product placed on several slots is counted once in the value sum
+	// ("sum of attached products"), while slot counters stay per-slot.
 	const q = `
+		WITH board AS (
+			SELECT s.slot_number, p.id AS product_id, p.supply_price
+			FROM shelf_slot s
+			LEFT JOIN product p ON p.id = s.product_id AND p.deleted_at IS NULL
+			WHERE s.company_id = $1
+		)
 		SELECT
-			COALESCE(SUM(p.supply_price), 0)              AS total_supply_value,
-			COUNT(*) FILTER (WHERE p.id IS NOT NULL)      AS occupied_slots,
-			COUNT(*) FILTER (WHERE p.id IS NULL)          AS empty_slots
-		FROM shelf_slot s
-		LEFT JOIN product p ON p.id = s.product_id AND p.deleted_at IS NULL
-		WHERE s.company_id = $1`
+			COALESCE((SELECT SUM(supply_price) FROM (
+				SELECT DISTINCT product_id, supply_price FROM board WHERE product_id IS NOT NULL
+			) d), 0)                                         AS total_supply_value,
+			COUNT(*) FILTER (WHERE product_id IS NOT NULL)   AS occupied_slots,
+			COUNT(*) FILTER (WHERE product_id IS NULL)       AS empty_slots
+		FROM board`
 	if err := sqlx.GetContext(ctx, r.db, &row, q, companyID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return domain.StockValueReport{TotalSupplyValue: decimal.Zero}, nil
